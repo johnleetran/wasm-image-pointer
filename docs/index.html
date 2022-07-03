@@ -1,0 +1,98 @@
+<html>
+    <head>
+        <script src="app.js"></script>
+    </head>
+    <body>
+        <input type="file" id="imageFile">
+        <img id="rendition"></img>
+        <script>
+            let rootDir = '/persistent';
+            let startTime, endTime;
+            let canvas = document.createElement('canvas');
+            
+            document.addEventListener('DOMContentLoaded', () => {
+                document.querySelector('#imageFile').addEventListener('change', handleFileInput);
+            });
+            async function handleFileInput(event){
+                let url = URL.createObjectURL(event.target.files[0]);
+                var imgObj = new Image();
+                let imageWidth = null;
+                let imageHeight = null;
+                imgObj.onload = () => {
+                    imageWidth = imgObj.width;
+                    imageHeight = imgObj.height;
+                }
+                imgObj.src = url;
+
+                let file = event.target.files[0];
+                let reader = new FileReader();
+                reader.readAsArrayBuffer(file);
+                reader.onload = (e) => {
+                    let bits = e.target.result;
+                    let inputFileName = rootDir + '/input.file';
+                    console.log("handleFileInput: ", inputFileName);
+                    startTime = new Date();
+                    let stream = FS.open(inputFileName, 'w');
+                    let array = new Int8Array(bits);
+                    FS.write(stream, array, 0, array.length, 0);
+                    FS.close(stream);
+                    FS.syncfs(false, (err) => {
+                        if(err){
+                            console.error("error:", err);
+                        }else{
+                            generate_rendition(inputFileName);
+                        }
+                    })
+                }
+
+            }
+
+            async function generate_rendition(inputFileName){
+                Module.read_file(inputFileName);
+                let width = Module.get_width();
+                let height = Module.get_height();
+                let num_channels = Module.get_num_channels();
+                let size = Module.get_size();
+
+                console.log("width:", width, "height:", height, "num_channels:", num_channels);
+
+
+                // let buf = Module.read_file(inputFileName);
+                let resultPointer = Module.get_raw_ptr();
+
+                const resultView = new Uint8Array(Module.HEAP8.buffer, resultPointer, size);
+                const pixels = new Uint8ClampedArray(resultView);
+
+                /* this one uses imagedata and works well */
+                var img = document.getElementById('rendition');
+                console.log("CANVAS: ", width, ", ", height);
+                const imageData = new ImageData(pixels, width, height);
+                canvas.width = width;
+                canvas.height = height;
+                let ctx = canvas.getContext('2d');
+                ctx.putImageData(imageData, 0, 0);
+                const lowQuality = canvas.toDataURL();
+                //console.log("url:", lowQuality)
+                img.setAttribute('src', lowQuality);
+            }
+
+            async function createURLForRendition(filename, mime){
+                mime = mime || "application/octet-stream";
+                let content = await FS.readFile(filename);
+                return URL.createObjectURL(new Blob([content], { type: mime }));
+            }
+
+            window.onload = async () => {
+                FS.mkdir(rootDir);
+                FS.mount(IDBFS, {}, rootDir)
+                FS.syncfs(true, (err)=>{
+                    if(err){
+                        console.error(err)
+                    }else{
+                        console.log("fs loaded")
+                    }
+                });
+            }
+        </script>
+    </body>
+</html>
